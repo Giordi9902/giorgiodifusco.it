@@ -108,6 +108,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Evita di caricare il sito nella cartella sbagliata: la destinazione deve già
+      # contenere public/index.php. Se non lo contiene, elenca la radice FTP per aiutare
+      # a scegliere il valore giusto di FTP_SERVER_DIR.
+      - name: Verifica cartella di destinazione
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PROTOCOL: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          FTP_PORT: ${{ vars.FTP_PORT || 21 }}
+          FTP_SERVER_DIR: ${{ vars.FTP_SERVER_DIR || './' }}
+        run: |
+          case "$FTP_SERVER_DIR" in
+            */) ;;
+            *) echo "::error::FTP_SERVER_DIR deve terminare con '/' (valore attuale: '$FTP_SERVER_DIR')"; exit 1 ;;
+          esac
+
+          case "$FTP_PROTOCOL" in
+            ftps)        scheme=ftp;  tls=(--ssl-reqd) ;;
+            ftps-legacy) scheme=ftps; tls=() ;;
+            ftp)         scheme=ftp;  tls=() ;;
+            *) echo "::error::FTP_PROTOCOL non valido: $FTP_PROTOCOL"; exit 1 ;;
+          esac
+
+          # Credenziali in un file di config curl (non sulla riga di comando),
+          # con escape di \ e " così funzionano password con spazi o simboli
+          curlcfg=$(mktemp)
+          esc() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
+          printf 'user = "%s:%s"\n' "$(esc "$FTP_USERNAME")" "$(esc "$FTP_PASSWORD")" > "$curlcfg"
+
+          # Nelle URL FTP il path è relativo alla cartella di login; %2F lo rende assoluto
+          dir="${FTP_SERVER_DIR#./}"
+          case "$dir" in /*) dir="%2F${dir#/}" ;; esac
+          base="$scheme://$FTP_SERVER:$FTP_PORT"
+
+          list() { curl -sS -K "$curlcfg" "${tls[@]}" --list-only "$1"; }
+
+          if list "$base/${dir}public/" | grep -qx 'index.php'; then
+            echo "✔ Destinazione valida: '${FTP_SERVER_DIR}' contiene public/index.php"
+            rm -f "$curlcfg"
+            exit 0
+          fi
+
+          echo "::error::'${FTP_SERVER_DIR}' non contiene public/index.php: deploy annullato per non caricare il sito nel posto sbagliato."
+          echo "Contenuto della cartella di login FTP:"
+          list "$base/" | sed 's/^/  /' || true
+          echo "Imposta la variabile FTP_SERVER_DIR (Settings → Environments → production) sulla cartella che contiene app/, core/ e public/, con '/' finale."
+          rm -f "$curlcfg"
+          exit 1
+
       # Sincronizza solo i file cambiati dall'ultimo deploy (stato in .ftp-deploy-sync-state.json
       # sul server, protetto dal .htaccess come ogni dotfile). Vengono cancellati solo file
       # caricati da un deploy precedente: .env e i file in public/uploads/ non sono nel repo,
