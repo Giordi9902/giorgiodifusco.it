@@ -56,7 +56,8 @@
                 }
             }
         };
-        const BASE_URL = <?= json_encode(BASE_URL) ?>;
+        // Stessa origine della pagina: niente mixed content se BASE_URL nel .env è http://
+        const BASE_URL = window.location.origin + <?= json_encode(BASE_PATH) ?>;
         const CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
     </script>
     <?php if (ADSENSE_CLIENT !== ''): ?>

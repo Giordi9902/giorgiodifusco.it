@@ -187,7 +187,8 @@ class BlogPost extends Model
             "SELECT id, title, slug, status, published_at, created_at
              FROM {$this->table} ORDER BY created_at DESC LIMIT ?"
         );
-        $stmt->execute([$limit]);
+        $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
         return $stmt->fetchAll();
     }
 

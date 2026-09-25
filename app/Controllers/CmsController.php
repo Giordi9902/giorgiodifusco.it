@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use Core\BlogContent;
 use Core\Controller;
 use App\Models\BlogPost;
 use App\Models\BlogImage;
@@ -54,6 +55,9 @@ class CmsController extends Controller
         if (!empty($post['featured_image_id'])) {
             $featuredImage = (new BlogImage())->findById($post['featured_image_id']);
         }
+
+        // i vecchi articoli in Markdown vengono convertiti in HTML per TinyMCE
+        $post['content'] = BlogContent::toEditorHtml((string) $post['content']);
 
         $this->view('cms/blog_edit', ['post' => $post, 'featuredImage' => $featuredImage]);
     }

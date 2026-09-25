@@ -107,9 +107,8 @@ $italianDate = function (string $date): string {
     return date('d', $ts) . ' ' . $months[(int) date('n', $ts) - 1] . ' ' . date('Y', $ts);
 };
 
-$readingMinutes = function (string $html): int {
-    $words = preg_split('/\s+/u', trim(strip_tags($html)), -1, PREG_SPLIT_NO_EMPTY);
-    return max(1, (int) ceil(count($words) / 200));
+$readingMinutes = function (string $content): int {
+    return max(1, (int) ceil(\Core\BlogContent::wordCount($content) / 200));
 };
 ?>
 

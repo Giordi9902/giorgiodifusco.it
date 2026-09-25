@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Lesson;
 use App\Models\LessonPackage;
 use App\Models\Payment;
+use App\Models\BlogInsights;
 
 class AdminController extends Controller
 {
@@ -42,7 +43,20 @@ class AdminController extends Controller
             'pending_balance' => $packageModel->sumUnpaid() + $lessonModel->sumUnpaidSingleLessons(),
         ];
 
-        $this->view('admin/dashboard', ['stats' => $stats]);
+        // Insights blog: periodo scelto con ?periodo=7|30|90 (giorni)
+        $days = (int) ($_GET['periodo'] ?? 30);
+        if (!in_array($days, [7, 30, 90], true)) {
+            $days = 30;
+        }
+        try {
+            $blog = (new BlogInsights())->getDashboard($days);
+        } catch (\Throwable $e) {
+            // un problema con le statistiche non deve bloccare la dashboard
+            error_log('Blog insights: ' . $e->getMessage());
+            $blog = null;
+        }
+
+        $this->view('admin/dashboard', ['stats' => $stats, 'blog' => $blog]);
     }
 
     public function students()

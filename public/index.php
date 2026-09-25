@@ -69,11 +69,10 @@ set_exception_handler(function (\Throwable $e) {
         . '</body></html>';
 });
 
-$isHttps = ($_SERVER['HTTPS'] ?? '') === 'on' || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
 session_set_cookie_params([
     'lifetime' => 0,
     'path'     => '/',
-    'secure'   => $isHttps,
+    'secure'   => IS_HTTPS,
     'httponly' => true,
     'samesite' => 'Lax',
 ]);

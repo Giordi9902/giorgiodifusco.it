@@ -7,6 +7,8 @@
             <p class="text-sm text-slate-400">Gestione e pubblicazione degli articoli del blog pubblico.</p>
         </div>
         <div class="flex items-center gap-3">
+            <a href="<?= BASE_URL ?>/admin#insights-blog"
+                class="text-sm font-medium text-slate-300 hover:text-slate-100 transition">Insights</a>
             <a href="<?= BASE_URL ?>/blog" target="_blank"
                 class="text-sm font-medium text-purple-400 hover:text-purple-300 transition">Vedi blog pubblico ↗</a>
             <a href="<?= BASE_URL ?>/cms/blog/new"
@@ -107,7 +109,7 @@
             </div>
             <div>
                 <p class="font-semibold text-sm">Scrivi un articolo</p>
-                <p class="text-xs text-slate-500 mt-0.5">Crea un nuovo articolo con Markdown, immagini e video</p>
+                <p class="text-xs text-slate-500 mt-0.5">Crea un nuovo articolo con l'editor visuale, immagini e video</p>
             </div>
         </a>
 

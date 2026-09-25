@@ -2,9 +2,11 @@
 
 namespace App\Controllers;
 
+use Core\BlogContent;
 use Core\Controller;
 use App\Models\BlogPost;
 use App\Models\BlogImage;
+use App\Models\BlogInsights;
 use App\Models\Course;
 use App\Models\Subject;
 
@@ -76,6 +78,9 @@ class BlogController extends Controller
             echo "Articolo non trovato";
             return;
         }
+
+        (new BlogInsights())->trackView((int)$post['id']);
+
         $featuredImage = null;
         if (!empty($post['featured_image_id'])) {
             $imageModel = new BlogImage();
@@ -431,7 +436,7 @@ class BlogController extends Controller
         $post = [
             'title'             => trim((string) ($data['title'] ?? '')),
             'excerpt'           => $optionalText('excerpt'),
-            'content'           => trim((string) ($data['content'] ?? '')),
+            'content'           => $this->normalizeContent((string) ($data['content'] ?? '')),
             'status'            => in_array($data['status'] ?? '', ['draft', 'published'], true) ? $data['status'] : 'draft',
             'seo_title'         => $optionalText('seo_title'),
             'seo_description'   => $optionalText('seo_description'),
@@ -446,5 +451,22 @@ class BlogController extends Controller
         }
 
         return $post;
+    }
+
+    /**
+     * L'HTML dell'editor viene ripulito (whitelist di tag/attributi) prima del salvataggio.
+     * Restituisce '' se non resta nessun contenuto reale (es. solo "<p>&nbsp;</p>").
+     */
+    private function normalizeContent(string $content): string
+    {
+        $content = trim($content);
+        if (!BlogContent::isHtml($content)) {
+            return $content;
+        }
+
+        $content = BlogContent::sanitize($content);
+        $hasMedia = (bool) preg_match('/<(img|iframe)\b/i', $content);
+
+        return (BlogContent::plainText($content) === '' && !$hasMedia) ? '' : $content;
     }
 }

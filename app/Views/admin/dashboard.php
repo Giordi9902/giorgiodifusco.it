@@ -90,6 +90,8 @@
         </div>
     </div>
 
+    <?php require __DIR__ . '/_blog_insights.php'; ?>
+
     <!-- Quick Actions -->
     <div>
         <h2 class="text-lg font-semibold text-slate-100 mb-4 mt-8">Azioni rapide</h2>
