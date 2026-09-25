@@ -67,6 +67,11 @@
         body {
             font-family: 'Inter', system-ui, sans-serif;
         }
+
+        /* L'attributo hidden deve vincere sulle utility di display (flex, grid, ...) */
+        [hidden] {
+            display: none !important;
+        }
     </style>
 </head>
 

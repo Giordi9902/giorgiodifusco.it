@@ -33,9 +33,11 @@ class BlogPost extends Model
         }
 
         $where = implode(' AND ', $conditions);
-        $sql = "SELECT bp.*, bi.path AS featured_image_path, bi.alt_text AS featured_image_alt
+        $sql = "SELECT bp.*, bi.path AS featured_image_path, bi.alt_text AS featured_image_alt,
+                       c.name AS course_name, c.slug AS course_slug
                 FROM {$this->table} bp
                 LEFT JOIN blog_images bi ON bp.featured_image_id = bi.id
+                LEFT JOIN courses c ON bp.course_id = c.id
                 WHERE {$where}
                 ORDER BY (bp.published_at IS NULL), bp.published_at DESC, bp.created_at DESC
                 LIMIT " . (int)$limit . " OFFSET " . (int)$offset;

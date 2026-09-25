@@ -22,7 +22,7 @@ class HomeController extends Controller
      * La homepage pubblica deve restare raggiungibile anche se il database
      * non risponde: in quel caso la sezione viene semplicemente omessa.
      */
-    private function fetchRecentPostsSafely(int $limit = 3): array
+    private function fetchRecentPostsSafely(int $limit = 6): array
     {
         try {
             return (new BlogPost())->findPublished(null, null, null, $limit);
