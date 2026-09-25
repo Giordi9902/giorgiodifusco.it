@@ -1,0 +1,36 @@
+# --- Segreti / configurazione locale ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Contenuti caricati dagli utenti (dati personali degli studenti) ---
+public/uploads/**
+!public/uploads/.htaccess
+!public/uploads/*/
+!public/uploads/*/.gitkeep
+
+# --- Dump e backup del database ---
+*.sql
+!schemas/schema.sql
+*.sql.gz
+*.dump
+*.bak
+
+# --- Log e cache ---
+*.log
+logs/
+storage/
+cache/
+
+# --- Dipendenze ---
+vendor/
+node_modules/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

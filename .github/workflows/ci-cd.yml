@@ -1,0 +1,135 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Simula il deploy senza caricare file"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ["8.1", "8.3"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_mysql, mbstring, iconv
+          coverage: none
+
+      - name: Sintassi di tutti i file PHP
+        run: find . -name '*.php' -not -path './public/uploads/*' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      - name: Rotte collegate a controller esistenti
+        run: php bin/check-routes.php
+
+  smoke:
+    name: Smoke test
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      # Valori fittizi: il DB non è raggiungibile, si verifica che il sito regga comunque
+      APP_DEBUG: "false"
+      DB_HOST: 127.0.0.1
+      DB_USER: ci
+      DB_PASS: ci
+      DB_NAME: ci
+      BASE_URL: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_mysql
+          coverage: none
+
+      - name: Avvia il server integrato
+        run: |
+          php -S localhost:8000 public/index.php > server.log 2>&1 &
+          sleep 2
+
+      - name: Verifica risposte HTTP
+        run: |
+          check() {
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8000$1")
+            if [ "$code" != "$2" ]; then echo "✖ $1 → $code (atteso $2)"; exit 1; fi
+            echo "✔ $1 → $code"
+          }
+          check /                               200
+          check /login                          200
+          check /sitemap.xml                    200
+          check /public/assets/js/homepage.js   200
+          check /pagina-inesistente             404
+          check /api/inesistente                404
+          check /config/config.php              404
+          check /.env                           404
+
+      - name: Log del server
+        if: failure()
+        run: cat server.log
+
+  secrets:
+    name: Scansione segreti
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    name: Deploy in produzione
+    needs: [lint, smoke, secrets]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://www.giorgiodifusco.it
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sincronizza solo i file cambiati dall'ultimo deploy (stato in .ftp-deploy-sync-state.json
+      # sul server, protetto dal .htaccess come ogni dotfile). Vengono cancellati solo file
+      # caricati da un deploy precedente: .env e i file in public/uploads/ non sono nel repo,
+      # quindi sul server restano intatti.
+      - name: Upload via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          port: ${{ vars.FTP_PORT || 21 }}
+          server-dir: ${{ vars.FTP_SERVER_DIR || './' }}
+          dry-run: ${{ inputs.dry_run || false }}
+          log-level: standard
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .githooks/**
+            .github/**
+            .env
+            .env.*
+            README.md
+            schemas/**
+            bin/**

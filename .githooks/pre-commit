@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Blocca commit che includono file o stringhe sensibili.
+# Attivazione (una volta): git config core.hooksPath .githooks
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail=0
+
+# 1) File che non devono mai finire nel repository
+while IFS= read -r f; do
+    case "$f" in
+        .env|.env.*) [ "$f" = ".env.example" ] || { echo "✖ file di ambiente: $f"; fail=1; } ;;
+        public/uploads/*) case "$f" in */.gitkeep|public/uploads/.htaccess) ;; *) echo "✖ upload utente: $f"; fail=1 ;; esac ;;
+        *.sql|*.sql.gz|*.dump|*.bak) [ "$f" = "schemas/schema.sql" ] || { echo "✖ dump/backup: $f"; fail=1; } ;;
+        *.pem|*.key) echo "✖ chiave privata: $f"; fail=1 ;;
+    esac
+done <<< "$staged"
+
+# 2) Credenziali scritte direttamente nel codice
+patterns=(
+    "define\(['\"]DB_(PASS|USER|HOST)['\"],[[:space:]]*['\"][^'\"]+['\"]"
+    "(password|passwd|secret|api_?key|token)[[:space:]]*=[[:space:]]*['\"][A-Za-z0-9+/_.-]{8,}['\"]"
+    "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+    "AKIA[0-9A-Z]{16}"
+)
+for p in "${patterns[@]}"; do
+    if hits=$(git diff --cached -U0 -- $staged | grep -E '^\+' | grep -Ei -- "$p"); then
+        echo "✖ possibile segreto nel diff:"; echo "$hits" | head -5; fail=1
+    fi
+done
+
+if [ "$fail" -ne 0 ]; then
+    echo
+    echo "Commit bloccato. Sposta i valori in .env o rimuovi i file dallo stage (git restore --staged <file>)."
+    echo "Per forzare consapevolmente: git commit --no-verify"
+    exit 1
+fi

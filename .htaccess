@@ -1,0 +1,29 @@
+Options -Indexes
+
+# Blocca l'accesso diretto a dotfile (.env, .git, .htaccess, ...)
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    Options +FollowSymLinks
+    RewriteEngine On
+
+    # Codice sorgente, configurazione e file di progetto non sono pubblici
+    RewriteRule ^(app|core|config|schemas|bin|\.git|\.githooks)(/|$) - [F,L]
+    RewriteRule ^(README\.md|composer\.(json|lock))$ - [F,L]
+
+    # Redirect the root directory to public/index.php
+    RewriteRule ^$ public/index.php [L]
+
+    # Handle all other requests
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ public/index.php?url=$1 [QSA,L]
+</IfModule>
