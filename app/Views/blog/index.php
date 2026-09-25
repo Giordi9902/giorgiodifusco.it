@@ -15,27 +15,9 @@ function blog_page_url(int $p): string
     return BASE_URL . '/blog?' . http_build_query($params);
 }
 
-function blog_plain_excerpt(string $markdown, int $length = 180): string
+function blog_plain_excerpt(string $content, int $length = 180): string
 {
-    $text = $markdown;
-
-    $text = preg_replace('/```.*?```/s', ' ', $text);                 // code blocks
-    $text = preg_replace('/^@\[video]\([^)]+\)$/m', ' ', $text);      // video embeds
-    $text = preg_replace('/!\[([^\]]*)]\([^)]+\)/', '$1', $text);     // images
-    $text = preg_replace('/\[([^\]]+)]\([^)]+\)/', '$1', $text);      // links
-    $text = preg_replace('/`([^`]+)`/', '$1', $text);                 // inline code
-    $text = preg_replace('/\*\*(.+?)\*\*/', '$1', $text);             // bold
-    $text = preg_replace('/\*(.+?)\*/', '$1', $text);                 // italic
-    $text = preg_replace('/^#{1,6}\s+/m', '', $text);                 // headings
-    $text = preg_replace('/^>\s?/m', '', $text);                      // blockquotes
-    $text = preg_replace('/^[-*]\s+/m', '', $text);                   // bullet lists
-    $text = preg_replace('/^\d+\.\s+/m', '', $text);                  // numbered lists
-    $text = preg_replace('/^-{3,}$/m', ' ', $text);                   // horizontal rules
-    $text = preg_replace('/\${1,2}/', '', $text);                     // KaTeX $ delimiters
-    $text = strip_tags($text);
-    $text = preg_replace('/\s+/', ' ', trim($text));
-
-    return mb_substr($text, 0, $length);
+    return mb_substr(\Core\BlogContent::plainText($content), 0, $length);
 }
 ?>
 
@@ -78,7 +60,7 @@ function blog_plain_excerpt(string $markdown, int $length = 180): string
                         <?php foreach ($posts as $post): ?>
                             <?php
                             $date        = $post['published_at'] ?? $post['created_at'];
-                            $wordCount   = str_word_count(strip_tags($post['content'] ?? ''));
+                            $wordCount   = \Core\BlogContent::wordCount($post['content'] ?? '');
                             $readingMins = max(1, (int)ceil($wordCount / 220));
                             ?>
                             <article class="group flex flex-col rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm transition hover:-translate-y-px hover:border-blue-200 hover:shadow-md hover:shadow-blue-50">

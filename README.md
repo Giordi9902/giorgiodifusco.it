@@ -7,7 +7,8 @@ Sito personale e piattaforma per la gestione di lezioni private, scritta in PHP 
 - **Sito pubblico**: homepage, blog con filtri per area/argomento, ricerca, paginazione, sitemap XML e metadati SEO / Open Graph / JSON-LD.
 - **Area studente**: lezioni programmate e svolte, pacchetti di ore con minuti residui, materiali didattici, pagamenti e saldo da versare.
 - **Area admin (LMS)**: gestione studenti, lezioni (in presenza / online), pacchetti, pagamenti con riconciliazione automatica, materiali (file, link, testo) e note.
-- **CMS blog**: editor articoli, immagini in evidenza, campi SEO, gestione di aree e argomenti.
+- **CMS blog**: editor visuale TinyMCE (HTML ripulito lato server con whitelist; i vecchi articoli in Markdown restano supportati), immagini in evidenza, campi SEO, gestione di aree e argomenti.
+- **Insights blog** (dashboard admin): letture giornaliere, articoli più letti, sorgenti di traffico, statistiche per area e controlli SEO/editoriali. Le visite sono contatori aggregati per giorno, senza IP né cookie.
 
 ## Stack
 
@@ -39,6 +40,8 @@ mysql -u root -p -e "CREATE DATABASE lms CHARACTER SET utf8mb4"
 mysql -u root -p lms < schemas/schema.sql
 php bin/create-admin.php "Nome Cognome" admin@example.com
 ```
+
+Le modifiche successive allo schema stanno in `schemas/migrations/` (già incluse in `schema.sql` per le installazioni nuove): sul DB esistente vanno eseguite a mano, una volta, in ordine di data.
 
 Con Apache, la document root è la cartella del progetto (il `.htaccess` in radice instrada tutto verso `public/index.php`). In sviluppo si può usare anche il server integrato:
 

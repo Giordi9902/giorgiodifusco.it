@@ -34,3 +34,6 @@ node_modules/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Migrazioni dello schema (versionate)
+!schemas/migrations/*.sql

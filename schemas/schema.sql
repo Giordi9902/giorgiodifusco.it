@@ -51,6 +51,28 @@ CREATE TABLE `blog_images` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for tables `blog_post_views` and `blog_traffic_sources`
+-- (statistiche del blog, vedi schemas/migrations/2026-09-25-blog-insights.sql)
+--
+
+CREATE TABLE `blog_post_views` (
+  `post_id` int NOT NULL,
+  `view_date` date NOT NULL,
+  `views` int unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`post_id`, `view_date`),
+  KEY `idx_blog_post_views_date` (`view_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE `blog_traffic_sources` (
+  `view_date` date NOT NULL,
+  `source` varchar(100) NOT NULL,
+  `views` int unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`view_date`, `source`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `blog_posts`
 --
 
@@ -455,6 +477,12 @@ ALTER TABLE `lesson_packages`
 --
 ALTER TABLE `materials`
   ADD CONSTRAINT `materials_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `blog_post_views`
+--
+ALTER TABLE `blog_post_views`
+  ADD CONSTRAINT `fk_blog_post_views_post` FOREIGN KEY (`post_id`) REFERENCES `blog_posts` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `payments`

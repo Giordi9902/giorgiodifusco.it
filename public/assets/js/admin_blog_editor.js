@@ -1,397 +1,309 @@
 /**
- * Shared CMS editor — used by both blog_create.php and blog_edit.php.
- * Mode is determined at runtime by reading data attributes on #blogPostForm:
- *   data-post-id  → edit mode (PUT /api/blog/posts/{id})
- *   (absent)      → create mode (POST /api/blog/posts)
+ * Editor articoli del CMS (TinyMCE) — usato da blog_create.php e blog_edit.php
+ * tramite il form condiviso cms/_blog_form.php.
+ * La modalità si legge dal form #blogPostForm:
+ *   data-post-id  → modifica (PUT /api/blog/posts/{id})
+ *   (assente)     → nuovo articolo (POST /api/blog/posts)
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const form           = document.getElementById("blogPostForm");
-  const textarea       = document.getElementById("blogContent");
-  const preview        = document.getElementById("blogContentPreview");
-  const courseSelect   = document.getElementById("blogCourseSelect");
-  const subjectSelect  = document.getElementById("blogSubjectSelect");
-  const imageInput     = document.getElementById("blogImageInput");
-  const featuredInput  = document.getElementById("featuredImageId");
+  const form          = document.getElementById("blogPostForm");
+  const textarea      = document.getElementById("blogContent");
+  const courseSelect  = document.getElementById("blogCourseSelect");
+  const subjectSelect = document.getElementById("blogSubjectSelect");
+  const taxonomyError = document.getElementById("taxonomyError");
+  const submitButton  = document.getElementById("blogSubmitButton");
+  const featuredInput = document.getElementById("featuredImageId");
 
   const coverInput       = document.getElementById("coverImageInput");
   const coverPreviewImg  = document.getElementById("coverPreviewImg");
   const coverPlaceholder = document.getElementById("coverPreviewPlaceholder");
   const removeCoverBtn   = document.getElementById("removeCoverButton");
 
-  if (!form || !textarea || !preview) return;
+  if (!form || !textarea) return;
 
-  const postId          = form.dataset.postId || null;
-  const initialCourseId = courseSelect?.dataset.initialCourseId || null;
+  const postId           = form.dataset.postId || null;
+  const initialCourseId  = courseSelect?.dataset.initialCourseId || null;
   const initialSubjectId = subjectSelect?.dataset.initialSubjectId || null;
+  const jsonHeaders      = { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" };
 
-  let pendingImageAlt = "";
+  let isDirty = false;
 
-  // ── Video URL parser ──────────────────────────────────────────────────────
-  function parseVideoUrl(url) {
-    let m;
-    if ((m = url.match(/(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/))) {
-      return `https://www.youtube-nocookie.com/embed/${m[1]}`;
-    }
-    if ((m = url.match(/vimeo\.com\/(\d+)/))) {
-      return `https://player.vimeo.com/video/${m[1]}`;
-    }
-    return url;
-  }
-
-  function videoEmbedHtml(url) {
-    const src = parseVideoUrl(url.trim());
-    if (!src) return "";
-    return `<div class="relative my-4 pb-[56.25%] h-0 overflow-hidden rounded-xl border border-slate-800">`
-      + `<iframe class="absolute inset-0 w-full h-full rounded-xl" src="${src}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`
-      + `</div>`;
-  }
-
-  // ── Inline formatting helpers ─────────────────────────────────────────────
-  function applyInline(esc) {
-    // images first (before links so ![ is not captured by [ )
-    esc = esc.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,
-      '<img src="$2" alt="$1" class="my-3 rounded-xl border border-slate-800 max-w-full" loading="lazy">');
-    esc = esc.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" class="text-indigo-300 underline underline-offset-2 hover:text-indigo-200" target="_blank" rel="noopener noreferrer">$1</a>');
-    esc = esc.replace(/`([^`]+)`/g,
-      '<code class="px-1.5 py-0.5 rounded bg-slate-950/70 border border-slate-800 text-[0.78rem] font-mono text-slate-100">$1</code>');
-    esc = esc.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-50">$1</strong>');
-    esc = esc.replace(/\*(.+?)\*/g,     '<em class="italic">$1</em>');
-    return esc;
-  }
-
-  // ── Preview renderer ──────────────────────────────────────────────────────
-  function renderPreview() {
-    const lines       = (textarea.value || "").split(/\n/);
-    let inCodeBlock   = false;
-    let codeLang      = "";
-    let inList        = false;
-    let listTag       = "ul";
-    const htmlLines   = [];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // ``` code block
-      if (trimmed.startsWith("```")) {
-        if (!inCodeBlock) {
-          inCodeBlock = true;
-          codeLang    = trimmed.slice(3).trim();
-          if (inList) { htmlLines.push(`</${listTag}>`); inList = false; }
-          const langClass = codeLang ? ` language-${codeLang}` : "";
-          htmlLines.push(`<pre class="mt-4 mb-4 rounded-xl bg-slate-950 border border-slate-800 p-4 overflow-x-auto text-xs text-slate-100"><code class="font-mono${langClass}">`);
-        } else {
-          inCodeBlock = false;
-          htmlLines.push("</code></pre>");
-        }
-        continue;
-      }
-
-      if (inCodeBlock) {
-        htmlLines.push(line.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + "\n");
-        continue;
-      }
-
-      // @[video](url)
-      const videoMatch = trimmed.match(/^@\[video\]\(([^)]+)\)$/);
-      if (videoMatch) {
-        if (inList) { htmlLines.push(`</${listTag}>`); inList = false; }
-        htmlLines.push(videoEmbedHtml(videoMatch[1]));
-        continue;
-      }
-
-      // --- hr
-      if (trimmed === "---") {
-        if (inList) { htmlLines.push(`</${listTag}>`); inList = false; }
-        htmlLines.push('<hr class="my-6 border-slate-800">');
-        continue;
-      }
-
-      // > blockquote
-      if (trimmed.startsWith("> ")) {
-        if (inList) { htmlLines.push(`</${listTag}>`); inList = false; }
-        const inner = applyInline(trimmed.slice(2).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"));
-        htmlLines.push(`<blockquote class="my-3 border-l-4 border-indigo-500/60 pl-4 text-slate-300 italic text-sm">${inner}</blockquote>`);
-        continue;
-      }
-
-      // Lists
-      const isBullet   = /^[-*]\s+/.test(trimmed);
-      const isNumbered = /^\d+\.\s+/.test(trimmed);
-
-      if (isBullet || isNumbered) {
-        const currentTag  = isNumbered ? "ol" : "ul";
-        const itemRaw     = trimmed.replace(isNumbered ? /^\d+\.\s+/ : /^[-*]\s+/, "");
-        const itemEsc     = applyInline(itemRaw.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"));
-
-        if (!inList || listTag !== currentTag) {
-          if (inList) htmlLines.push(`</${listTag}>`);
-          listTag = currentTag;
-          htmlLines.push(listTag === "ol"
-            ? '<ol class="list-decimal list-outside ml-5 mt-2 mb-3 space-y-1 text-sm text-slate-300">'
-            : '<ul class="list-disc list-outside ml-5 mt-2 mb-3 space-y-1 text-sm text-slate-300">');
-          inList = true;
-        }
-        htmlLines.push(`<li>${itemEsc}</li>`);
-        continue;
-      }
-
-      if (trimmed === "") {
-        if (inList) { htmlLines.push(`</${listTag}>`); inList = false; }
-        htmlLines.push("<br>");
-        continue;
-      }
-
-      if (inList) { htmlLines.push(`</${listTag}>`); inList = false; }
-
-      let esc = line.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-
-      if (esc.startsWith("### ")) {
-        htmlLines.push(`<h3 class="text-sm sm:text-base font-semibold text-slate-100 mt-6 mb-2">${esc.slice(4).trim()}</h3>`);
-        continue;
-      }
-      if (esc.startsWith("## ")) {
-        htmlLines.push(`<h2 class="text-lg sm:text-xl font-semibold text-slate-50 mt-8 mb-2">${esc.slice(3).trim()}</h2>`);
-        continue;
-      }
-
-      htmlLines.push(`<p class="text-sm text-slate-300 leading-relaxed">${applyInline(esc)}</p>`);
-    }
-
-    if (inList) htmlLines.push(`</${listTag}>`);
-
-    preview.innerHTML = htmlLines.join("\n");
-
-    if (window.renderMathInElement) {
-      window.renderMathInElement(preview, {
-        delimiters: [
-          { left: "$$", right: "$$", display: true },
-          { left: "$",  right: "$",  display: false },
-          { left: "\\(", right: "\\)", display: false },
-          { left: "\\[", right: "\\]", display: true },
-        ],
-      });
-    }
-    if (window.hljs) {
-      preview.querySelectorAll("pre code").forEach(el => window.hljs.highlightElement(el));
-    }
-  }
-
-  // ── Cursor helpers ────────────────────────────────────────────────────────
-  function insertAtCursor(field, text) {
-    const start  = field.selectionStart ?? field.value.length;
-    const end    = field.selectionEnd ?? field.value.length;
-    field.value  = field.value.substring(0, start) + text + field.value.substring(end);
-    const pos    = start + text.length;
-    field.selectionStart = field.selectionEnd = pos;
-    field.focus();
-    renderPreview();
-  }
-
-  function wrapSelection(field, before, after, placeholder = "testo") {
-    const start     = field.selectionStart ?? 0;
-    const end       = field.selectionEnd ?? 0;
-    const selection = field.value.substring(start, end) || placeholder;
-    const newText   = before + selection + after;
-    field.value     = field.value.substring(0, start) + newText + field.value.substring(end);
-    field.selectionStart = start + before.length;
-    field.selectionEnd   = start + before.length + selection.length;
-    field.focus();
-    renderPreview();
-  }
-
-  function prependToLine(field, prefix) {
-    const start     = field.selectionStart ?? 0;
-    const lineStart = field.value.lastIndexOf("\n", start - 1) + 1;
-    const already   = field.value.substring(lineStart).startsWith(prefix);
-    if (already) {
-      field.value = field.value.substring(0, lineStart) + field.value.substring(lineStart + prefix.length);
-      field.selectionStart = field.selectionEnd = Math.max(lineStart, start - prefix.length);
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  async function showAlert(msg, title = "Info", variant = "info") {
+    if (window.showAppAlert) {
+      await window.showAppAlert(msg, { title, variant });
     } else {
-      field.value = field.value.substring(0, lineStart) + prefix + field.value.substring(lineStart);
-      field.selectionStart = field.selectionEnd = start + prefix.length;
+      alert(msg);
     }
-    field.focus();
-    renderPreview();
   }
 
-  // ── Toolbar ───────────────────────────────────────────────────────────────
-  document.querySelectorAll("[data-editor-action]").forEach(btn => {
-    btn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      const action = btn.dataset.editorAction;
-      switch (action) {
-        case "bold":       wrapSelection(textarea, "**", "**"); break;
-        case "italic":     wrapSelection(textarea, "*",  "*");  break;
-        case "h2":         prependToLine(textarea, "## "); break;
-        case "h3":         prependToLine(textarea, "### "); break;
-        case "blockquote": prependToLine(textarea, "> "); break;
-        case "hr":         insertAtCursor(textarea, "\n---\n"); break;
-        case "code": {
-          const lang = window.showAppPrompt
-            ? await window.showAppPrompt("Linguaggio del codice (es. c, python, javascript, sql...)", {
-                title: "Blocco di codice",
-                placeholder: "es. c — lascia vuoto per nessuno",
-                primaryText: "Inserisci",
-              })
-            : prompt("Linguaggio del codice (lascia vuoto per nessuno)", "");
-          const langTag = (lang || "").trim();
-          wrapSelection(textarea, `\n\`\`\`${langTag}\n`, "\n```\n", "codice");
-          break;
+  async function askText(message, options = {}) {
+    return window.showAppPrompt ? window.showAppPrompt(message, options) : prompt(message);
+  }
+
+  /**
+   * fetch + JSON con messaggi d'errore leggibili: se la risposta non è JSON
+   * (sessione scaduta, pagina d'errore del server...) lo dice invece di fallire in silenzio.
+   */
+  async function apiRequest(url, options = {}) {
+    const res = await fetch(url, { credentials: "same-origin", ...options, headers: { ...jsonHeaders, ...(options.headers || {}) } });
+    let result;
+    try {
+      result = await res.json();
+    } catch {
+      throw new Error(res.redirected || res.status === 401
+        ? "Sessione scaduta: effettua di nuovo l'accesso."
+        : `Risposta non valida dal server (HTTP ${res.status}).`);
+    }
+    if (!res.ok || !result.success) {
+      throw new Error(result.message || `Errore HTTP ${res.status}`);
+    }
+    return result;
+  }
+
+  async function uploadImage(file, onProgress) {
+    const formData = new FormData();
+    formData.append("image", file, file.name || "immagine.png");
+    formData.append("csrf_token", CSRF_TOKEN);
+    if (postId) formData.append("post_id", postId);
+
+    // XHR invece di fetch per avere l'avanzamento dell'upload nell'editor
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${BASE_URL}/api/blog/images`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress((e.loaded / e.total) * 100); };
+      xhr.onerror = () => reject(new Error("Errore di rete durante l'upload"));
+      xhr.onload = () => {
+        let result;
+        try { result = JSON.parse(xhr.responseText); } catch { result = null; }
+        if (xhr.status >= 200 && xhr.status < 300 && result?.success) {
+          resolve(result.data);
+        } else {
+          reject(new Error(result?.message || `Upload non riuscito (HTTP ${xhr.status})`));
         }
-      }
+      };
+      xhr.send(formData);
+    });
+  }
+
+  // ── TinyMCE ───────────────────────────────────────────────────────────────
+  const editorReady = new Promise((resolve) => {
+    if (!window.tinymce) {
+      // CDN non raggiungibile: resta la textarea semplice (HTML), il salvataggio funziona comunque
+      console.error("TinyMCE non caricato: uso la textarea semplice");
+      textarea.classList.add("font-mono");
+      resolve(null);
+      return;
+    }
+
+    window.tinymce.init({
+      target: textarea,
+      license_key: "gpl",
+      language: "it",
+      language_url: "https://cdn.jsdelivr.net/npm/tinymce-i18n@26.9.21/langs8/it.js",
+      skin: "oxide-dark",
+      content_css: "dark",
+      height: 640,
+      min_height: 400,
+      resize: true,
+      menubar: "edit insert format table tools",
+      branding: false,
+      promotion: false,
+      browser_spellcheck: true,
+      contextmenu: false,
+      plugins: "autolink link image media codesample lists advlist table code fullscreen wordcount searchreplace charmap visualblocks help",
+      toolbar:
+        "undo redo | blocks | bold italic underline strikethrough | bullist numlist | blockquote codesample | " +
+        "link image media table hr | removeformat | searchreplace visualblocks code fullscreen",
+      toolbar_mode: "sliding",
+      toolbar_sticky: true,
+      block_formats: "Paragrafo=p; Titolo sezione=h2; Sottotitolo=h3; Titolo minore=h4",
+      codesample_languages: [
+        { text: "C", value: "c" },
+        { text: "C++", value: "cpp" },
+        { text: "Python", value: "python" },
+        { text: "Java", value: "java" },
+        { text: "JavaScript", value: "javascript" },
+        { text: "TypeScript", value: "typescript" },
+        { text: "PHP", value: "php" },
+        { text: "SQL", value: "sql" },
+        { text: "Bash / shell", value: "bash" },
+        { text: "Makefile", value: "makefile" },
+        { text: "HTML / XML", value: "markup" },
+        { text: "CSS", value: "css" },
+        { text: "JSON", value: "json" },
+        { text: "Testo semplice", value: "plaintext" },
+      ],
+      link_default_target: "_blank",
+      link_assume_external_targets: "https",
+      link_title: false,
+      image_caption: true,
+      image_dimensions: false,
+      automatic_uploads: true,
+      paste_data_images: true,
+      images_file_types: "jpg,jpeg,png,gif,webp",
+      images_upload_handler: async (blobInfo, progress) => {
+        const data = await uploadImage(blobInfo.blob(), progress);
+        return data.url;
+      },
+      // URL delle immagini caricate senza schema/host: funzionano sia in http che in https
+      relative_urls: false,
+      remove_script_host: true,
+      document_base_url: `${BASE_URL}/`,
+      media_alt_source: false,
+      media_poster: false,
+      media_dimensions: false,
+      // l'HTML viene comunque ripulito dal server (Core\BlogContent) al salvataggio:
+      // qui si evita solo di importare stili e markup inutili quando si incolla
+      invalid_elements: "script,style,object,embed,form,input,button,select,textarea,font",
+      paste_webkit_styles: "none",
+      paste_remove_styles_if_webkit: true,
+      content_style: `
+        body { font-family: Inter, system-ui, sans-serif; font-size: 15px; line-height: 1.7; max-width: 760px; margin: 1rem auto; padding: 0 1rem; }
+        h2 { font-size: 1.35rem; margin: 1.6em 0 .5em; }
+        h3 { font-size: 1.1rem; margin: 1.3em 0 .4em; }
+        img { max-width: 100%; height: auto; border-radius: 12px; }
+        pre { background: #0b1220; border: 1px solid #1e293b; border-radius: 12px; padding: 1rem; font-size: 13px; overflow-x: auto; }
+        code { font-size: .9em; }
+        blockquote { border-left: 4px solid #60a5fa; margin-left: 0; padding-left: 1rem; color: #cbd5e1; font-style: italic; }
+        iframe { width: 100%; aspect-ratio: 16 / 9; height: auto; border-radius: 12px; }
+      `,
+      setup: (editor) => {
+        editor.on("init", () => resolve(editor));
+        editor.on("input change undo redo", () => { isDirty = true; });
+      },
+    }).catch((err) => {
+      console.error("TinyMCE init", err);
+      resolve(null);
     });
   });
 
-  // ── Course / Subject selects ──────────────────────────────────────────────
+  // ── Contatori caratteri (estratto, SEO) ───────────────────────────────────
+  document.querySelectorAll("[data-char-counter]").forEach((counter) => {
+    const field = document.getElementById(counter.dataset.charCounter);
+    if (!field) return;
+    const [min, max] = (counter.dataset.ideal || "0-0").split("-").map(Number);
+    const update = () => {
+      const len = field.value.trim().length;
+      counter.textContent = len ? `${len} caratteri · ideale ${min}–${max}` : `ideale ${min}–${max} caratteri`;
+      counter.classList.toggle("text-amber-400", len > 0 && (len < min || len > max));
+      counter.classList.toggle("text-emerald-400", len >= min && len <= max);
+    };
+    field.addEventListener("input", update);
+    update();
+  });
+
+  form.addEventListener("input", () => { isDirty = true; });
+
+  // ── Aree / argomenti ──────────────────────────────────────────────────────
+  function showTaxonomyError(message) {
+    if (!taxonomyError) return;
+    taxonomyError.textContent = message || "";
+    taxonomyError.classList.toggle("hidden", !message);
+  }
+
   async function loadCourses(selectedId = null) {
     if (!courseSelect) return;
+    courseSelect.disabled = true;
     try {
-      const res    = await fetch(`${BASE_URL}/api/blog/courses`, { headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" } });
-      const result = await res.json();
-      courseSelect.innerHTML = '<option value="">Nessun corso</option>';
-      if (result.success && Array.isArray(result.data)) {
-        result.data.forEach(course => {
-          const opt = new Option(course.name, course.id, false, String(course.id) === String(selectedId));
-          courseSelect.appendChild(opt);
-        });
-      }
-    } catch (e) { console.error("loadCourses", e); }
+      const result = await apiRequest(`${BASE_URL}/api/blog/courses`);
+      courseSelect.innerHTML = '<option value="">Nessuna area</option>';
+      (Array.isArray(result.data) ? result.data : []).forEach((course) => {
+        courseSelect.appendChild(new Option(course.name, course.id, false, String(course.id) === String(selectedId)));
+      });
+      showTaxonomyError("");
+    } catch (e) {
+      console.error("loadCourses", e);
+      courseSelect.innerHTML = '<option value="">Nessuna area</option>';
+      showTaxonomyError(`Impossibile caricare le aree: ${e.message}`);
+    } finally {
+      courseSelect.disabled = false;
+    }
   }
 
   async function loadSubjects(courseId, selectedId = null) {
     if (!subjectSelect) return;
-    subjectSelect.innerHTML = '<option value="">Nessuna materia</option>';
+    subjectSelect.innerHTML = '<option value="">Nessun argomento</option>';
     if (!courseId) return;
+    subjectSelect.disabled = true;
     try {
-      const res    = await fetch(`${BASE_URL}/api/blog/subjects?course_id=${encodeURIComponent(courseId)}`, { headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" } });
-      const result = await res.json();
-      if (result.success && Array.isArray(result.data)) {
-        result.data.forEach(sub => {
-          const opt = new Option(sub.name, sub.id, false, String(sub.id) === String(selectedId));
-          subjectSelect.appendChild(opt);
-        });
-      }
-    } catch (e) { console.error("loadSubjects", e); }
+      const result = await apiRequest(`${BASE_URL}/api/blog/subjects?course_id=${encodeURIComponent(courseId)}`);
+      (Array.isArray(result.data) ? result.data : []).forEach((sub) => {
+        subjectSelect.appendChild(new Option(sub.name, sub.id, false, String(sub.id) === String(selectedId)));
+      });
+      showTaxonomyError("");
+    } catch (e) {
+      console.error("loadSubjects", e);
+      showTaxonomyError(`Impossibile caricare gli argomenti: ${e.message}`);
+    } finally {
+      subjectSelect.disabled = false;
+    }
   }
 
   courseSelect?.addEventListener("change", () => loadSubjects(courseSelect.value || null, null));
 
   document.getElementById("createCourseButton")?.addEventListener("click", async () => {
-    const name = window.showAppPrompt
-      ? await window.showAppPrompt("Nome del nuovo corso", { title: "Nuovo corso", placeholder: "Es. Analisi 1, Geometria...", primaryText: "Crea" })
-      : prompt("Nome del nuovo corso");
+    const name = (await askText("Nome della nuova area", { title: "Nuova area", placeholder: "Es. Informatica, Matematica...", primaryText: "Crea" }))?.trim();
     if (!name) return;
     try {
-      const res    = await fetch(`${BASE_URL}/api/blog/courses`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify({ name, csrf_token: CSRF_TOKEN }) });
-      const result = await res.json();
-      if (!result.success) { showAlert(result.message || "Errore"); return; }
-      const last = result.data?.courses?.at(-1);
-      await loadCourses(last?.id ?? null);
-      if (last?.id) await loadSubjects(last.id, null);
-    } catch (e) { showAlert("Errore di rete"); }
+      const result = await apiRequest(`${BASE_URL}/api/blog/courses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, csrf_token: CSRF_TOKEN }),
+      });
+      // l'API restituisce le aree ordinate per nome: cerco quella appena creata
+      const created = (result.data?.courses || []).filter((c) => c.name === name).at(-1);
+      await loadCourses(created?.id ?? null);
+      await loadSubjects(created?.id ?? null, null);
+      isDirty = true;
+    } catch (e) {
+      showAlert(e.message, "Errore", "error");
+    }
   });
 
   document.getElementById("createSubjectButton")?.addEventListener("click", async () => {
     const courseId = courseSelect?.value;
-    if (!courseId) { showAlert("Seleziona prima un corso", "Attenzione"); return; }
-    const name = window.showAppPrompt
-      ? await window.showAppPrompt("Nome della nuova materia", { title: "Nuova materia", placeholder: "Es. Geometria, Probabilità...", primaryText: "Crea" })
-      : prompt("Nome della nuova materia");
+    if (!courseId) { showAlert("Seleziona prima un'area", "Attenzione"); return; }
+    const name = (await askText("Nome del nuovo argomento", { title: "Nuovo argomento", placeholder: "Es. Linguaggio C, Geometria...", primaryText: "Crea" }))?.trim();
     if (!name) return;
     try {
-      const res    = await fetch(`${BASE_URL}/api/blog/subjects`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify({ course_id: courseId, name, csrf_token: CSRF_TOKEN }) });
-      const result = await res.json();
-      if (!result.success) { showAlert(result.message || "Errore"); return; }
-      const last = result.data?.subjects?.at(-1);
-      await loadSubjects(courseId, last?.id ?? null);
-    } catch (e) { showAlert("Errore di rete"); }
-  });
-
-  // ── Link insert ───────────────────────────────────────────────────────────
-  document.getElementById("insertLinkButton")?.addEventListener("click", async () => {
-    const linkText = window.showAppPrompt
-      ? await window.showAppPrompt("Testo del link", { title: "Inserisci link", placeholder: "Testo visibile", primaryText: "Avanti" })
-      : prompt("Testo del link");
-    if (!linkText) return;
-    const url = window.showAppPrompt
-      ? await window.showAppPrompt("URL del link", { title: "URL", placeholder: "https://...", primaryText: "Inserisci" })
-      : prompt("URL", "https://");
-    if (!url) return;
-    insertAtCursor(textarea, `[${linkText}](${url})`);
-  });
-
-  // ── Image upload ──────────────────────────────────────────────────────────
-  document.getElementById("insertImageButton")?.addEventListener("click", async () => {
-    pendingImageAlt = (window.showAppPrompt
-      ? await window.showAppPrompt("Testo alternativo (alt) per l'immagine", { title: "Alt text", placeholder: "Es. Grafico normalizzazione", primaryText: "Avanti" })
-      : prompt("Alt text immagine")) || "";
-    imageInput?.click();
-  });
-
-  imageInput?.addEventListener("change", async () => {
-    if (!imageInput.files?.length) return;
-    const file     = imageInput.files[0];
-    const formData = new FormData();
-    formData.append("image", file);
-    formData.append("alt",   pendingImageAlt);
-    formData.append("csrf_token", CSRF_TOKEN);
-    if (postId) formData.append("post_id", postId);
-
-    try {
-      const res    = await fetch(`${BASE_URL}/api/blog/images`, { method: "POST", body: formData });
-      const result = await res.json();
-      if (!result.success) { showAlert(result.message || "Errore upload", "Errore", "error"); return; }
-      const { url: imgUrl } = result.data ?? {};
-      if (imgUrl) insertAtCursor(textarea, `\n![${pendingImageAlt}](${imgUrl})\n`);
-      showAlert("Immagine inserita nel contenuto", "Ok", "success");
+      const result = await apiRequest(`${BASE_URL}/api/blog/subjects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course_id: courseId, name, csrf_token: CSRF_TOKEN }),
+      });
+      const created = (result.data?.subjects || []).filter((s) => s.name === name).at(-1);
+      await loadSubjects(courseId, created?.id ?? null);
+      isDirty = true;
     } catch (e) {
-      showAlert("Errore di rete durante l'upload", "Errore", "error");
-    } finally {
-      imageInput.value = "";
-      pendingImageAlt  = "";
+      showAlert(e.message, "Errore", "error");
     }
   });
 
-  // ── Cover image (featured_image_id) — separata dalle immagini nel contenuto ─
+  // ── Copertina (featured_image_id) — separata dalle immagini nel contenuto ──
   function setCoverPreview(url) {
     if (!coverPreviewImg) return;
-    if (url) {
-      coverPreviewImg.src = url;
-      coverPreviewImg.classList.remove("hidden");
-      coverPlaceholder?.classList.add("hidden");
-      removeCoverBtn?.classList.remove("hidden");
-    } else {
-      coverPreviewImg.src = "";
-      coverPreviewImg.classList.add("hidden");
-      coverPlaceholder?.classList.remove("hidden");
-      removeCoverBtn?.classList.add("hidden");
-    }
+    coverPreviewImg.src = url || "";
+    coverPreviewImg.classList.toggle("hidden", !url);
+    coverPlaceholder?.classList.toggle("hidden", Boolean(url));
+    removeCoverBtn?.classList.toggle("hidden", !url);
   }
 
-  document.getElementById("uploadCoverButton")?.addEventListener("click", () => {
-    coverInput?.click();
-  });
+  document.getElementById("uploadCoverButton")?.addEventListener("click", () => coverInput?.click());
 
   coverInput?.addEventListener("change", async () => {
     if (!coverInput.files?.length) return;
-    const file     = coverInput.files[0];
-    const formData = new FormData();
-    formData.append("image", file);
-    formData.append("csrf_token", CSRF_TOKEN);
-    if (postId) formData.append("post_id", postId);
-
     try {
-      const res    = await fetch(`${BASE_URL}/api/blog/images`, { method: "POST", body: formData });
-      const result = await res.json();
-      if (!result.success) { showAlert(result.message || "Errore upload", "Errore", "error"); return; }
-      const { id: imgId, url: imgUrl } = result.data ?? {};
-      if (featuredInput && imgId) featuredInput.value = String(imgId);
-      setCoverPreview(imgUrl || null);
-      showAlert("Copertina aggiornata", "Ok", "success");
+      const data = await uploadImage(coverInput.files[0]);
+      if (featuredInput && data?.id) featuredInput.value = String(data.id);
+      setCoverPreview(data?.url || null);
+      isDirty = true;
     } catch (e) {
-      showAlert("Errore di rete durante l'upload", "Errore", "error");
+      showAlert(e.message, "Errore", "error");
     } finally {
       coverInput.value = "";
     }
@@ -400,58 +312,63 @@ document.addEventListener("DOMContentLoaded", () => {
   removeCoverBtn?.addEventListener("click", () => {
     if (featuredInput) featuredInput.value = "";
     setCoverPreview(null);
+    isDirty = true;
   });
 
-  // ── Video embed ───────────────────────────────────────────────────────────
-  document.getElementById("insertVideoButton")?.addEventListener("click", async () => {
-    const url = window.showAppPrompt
-      ? await window.showAppPrompt("URL del video (YouTube o Vimeo)", { title: "Incorpora video", placeholder: "https://www.youtube.com/watch?v=...", primaryText: "Incorpora" })
-      : prompt("URL del video (YouTube o Vimeo)", "https://");
-    if (!url) return;
-    insertAtCursor(textarea, `\n@[video](${url.trim()})\n`);
-  });
-
-  // ── Submit ────────────────────────────────────────────────────────────────
+  // ── Salvataggio ───────────────────────────────────────────────────────────
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const data       = Object.fromEntries(new FormData(form).entries());
-    delete data.id;
-    data.csrf_token  = CSRF_TOKEN;
+
+    const editor = await editorReady;
+    if (editor) editor.save(); // copia l'HTML dell'editor nella textarea
+
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.csrf_token = CSRF_TOKEN;
+
+    if (!data.title?.trim()) {
+      showAlert("Inserisci un titolo", "Attenzione");
+      document.getElementById("blogTitle")?.focus();
+      return;
+    }
+    const plain    = editor ? editor.getContent({ format: "text" }).trim() : (data.content || "").trim();
+    const hasMedia = /<(img|iframe)\b/i.test(data.content || "");
+    if (!plain && !hasMedia) {
+      showAlert("Il contenuto dell'articolo è vuoto", "Attenzione");
+      editor?.focus();
+      return;
+    }
 
     const isEdit = Boolean(postId);
     const url    = isEdit ? `${BASE_URL}/api/blog/posts/${postId}` : `${BASE_URL}/api/blog/posts`;
-    const method = isEdit ? "PUT" : "POST";
 
+    submitButton?.setAttribute("disabled", "disabled");
     try {
-      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify(data) });
-      const result = await res.json();
-      if (result.success) {
-        await showAlert(result.message || (isEdit ? "Articolo aggiornato" : "Articolo salvato"), isEdit ? "Aggiornato" : "Salvato", "success");
-        window.location.href = `${BASE_URL}/admin/blog`;
-      } else {
-        showAlert(result.message || "Errore durante il salvataggio", "Errore", "error");
-      }
+      const result = await apiRequest(url, {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      isDirty = false;
+      await showAlert(result.message || "Articolo salvato", isEdit ? "Aggiornato" : "Salvato", "success");
+      window.location.href = `${BASE_URL}/cms/blog`;
     } catch (err) {
       console.error(err);
-      showAlert("Errore di rete durante il salvataggio", "Errore di rete", "error");
+      showAlert(err.message || "Errore durante il salvataggio", "Errore", "error");
+    } finally {
+      submitButton?.removeAttribute("disabled");
     }
   });
 
-  // ── Init ──────────────────────────────────────────────────────────────────
-  textarea.addEventListener("input", renderPreview);
-  renderPreview();
+  // Avviso se si esce dalla pagina con modifiche non salvate
+  window.addEventListener("beforeunload", (e) => {
+    if (!isDirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 
+  // ── Init ──────────────────────────────────────────────────────────────────
   (async () => {
     await loadCourses(initialCourseId);
     if (initialCourseId) await loadSubjects(initialCourseId, initialSubjectId);
   })();
-
-  // ── Alert helper ─────────────────────────────────────────────────────────
-  async function showAlert(msg, title = "Info", variant = "info") {
-    if (window.showAppAlert) {
-      await window.showAppAlert(msg, { title, variant });
-    } else {
-      alert(msg);
-    }
-  }
 });

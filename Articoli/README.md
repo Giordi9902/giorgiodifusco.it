@@ -28,6 +28,7 @@ Articoli/
   - `01-introduzione-al-c` — Perché imparare il C nel 2026
   - `02-la-compilazione` — La pipeline di compilazione (preprocessore → linker)
   - `03-numeri-e-operatori` — Tipi interi, overflow, operatori bitwise
+  - `04-puntatori` — Indirizzi, & e *, passaggio per indirizzo, aritmetica dei puntatori
 
 ## Convenzioni
 
