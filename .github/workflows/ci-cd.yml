@@ -144,18 +144,29 @@ jobs:
           base="$scheme://$FTP_SERVER:$FTP_PORT"
 
           list() { curl -sS -K "$curlcfg" "${tls[@]}" --list-only "$1"; }
+          trap 'rm -f "$curlcfg"' EXIT
 
-          if list "$base/${dir}public/" | grep -qx 'index.php'; then
+          # 1) Connessione, TLS e login: problemi diversi da una cartella sbagliata
+          if ! root_listing=$(list "$base/" 2>&1); then
+            echo "::error::Connessione FTP fallita (server, certificato TLS o credenziali):"
+            echo "$root_listing" | sed 's/^/  /'
+            if grep -q 'SSL' <<< "$root_listing"; then
+              echo "Il certificato del server non corrisponde a FTP_SERVER: usa come FTP_SERVER il nome"
+              echo "riportato nel certificato (per Aruba è del tipo ftplnxNN.aruba.it)."
+            fi
+            exit 1
+          fi
+
+          # 2) La destinazione deve contenere il sito già installato
+          if list "$base/${dir}public/" 2>/dev/null | grep -qx 'index.php'; then
             echo "✔ Destinazione valida: '${FTP_SERVER_DIR}' contiene public/index.php"
-            rm -f "$curlcfg"
             exit 0
           fi
 
           echo "::error::'${FTP_SERVER_DIR}' non contiene public/index.php: deploy annullato per non caricare il sito nel posto sbagliato."
           echo "Contenuto della cartella di login FTP:"
-          list "$base/" | sed 's/^/  /' || true
+          echo "$root_listing" | sed 's/^/  /'
           echo "Imposta la variabile FTP_SERVER_DIR (Settings → Environments → production) sulla cartella che contiene app/, core/ e public/, con '/' finale."
-          rm -f "$curlcfg"
           exit 1
 
       # Sincronizza solo i file cambiati dall'ultimo deploy (stato in .ftp-deploy-sync-state.json
@@ -171,6 +182,8 @@ jobs:
           protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
           port: ${{ vars.FTP_PORT || 21 }}
           server-dir: ${{ vars.FTP_SERVER_DIR || './' }}
+          # Verifica il certificato TLS (il default "loose" invierebbe la password a chiunque risponda)
+          security: ${{ vars.FTP_PROTOCOL == 'ftp' && 'loose' || 'strict' }}
           dry-run: ${{ inputs.dry_run || false }}
           log-level: standard
           exclude: |

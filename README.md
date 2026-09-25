@@ -61,10 +61,10 @@ Configurazione in *Settings → Environments → production*:
 
 | Tipo | Nome | Esempio |
 |---|---|---|
-| Secret | `FTP_SERVER` | `ftp.example.com` |
+| Secret | `FTP_SERVER` | host del certificato TLS (su Aruba `ftplnxNN.aruba.it`, non `ftp.<dominio>`) |
 | Secret | `FTP_USERNAME` | |
 | Secret | `FTP_PASSWORD` | |
-| Variable (opzionale) | `FTP_SERVER_DIR` | `./` (default), deve finire con `/` |
+| Variable (opzionale) | `FTP_SERVER_DIR` | `./` (default), su Aruba `www.<dominio>/`; deve finire con `/` |
 | Variable (opzionale) | `FTP_PROTOCOL` | `ftps` (default) o `ftp` |
 | Variable (opzionale) | `FTP_PORT` | `21` (default) |
 
