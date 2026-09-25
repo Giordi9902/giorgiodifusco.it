@@ -119,6 +119,7 @@ jobs:
           FTP_PROTOCOL: ${{ vars.FTP_PROTOCOL || 'ftps' }}
           FTP_PORT: ${{ vars.FTP_PORT || 21 }}
           FTP_SERVER_DIR: ${{ vars.FTP_SERVER_DIR || './' }}
+          FTP_SERVER_DIR_RAW: ${{ vars.FTP_SERVER_DIR }}
         run: |
           case "$FTP_SERVER_DIR" in
             */) ;;
@@ -166,7 +167,13 @@ jobs:
           echo "::error::'${FTP_SERVER_DIR}' non contiene public/index.php: deploy annullato per non caricare il sito nel posto sbagliato."
           echo "Contenuto della cartella di login FTP:"
           echo "$root_listing" | sed 's/^/  /'
-          echo "Imposta la variabile FTP_SERVER_DIR (Settings → Environments → production) sulla cartella che contiene app/, core/ e public/, con '/' finale."
+          if [ -z "$FTP_SERVER_DIR_RAW" ]; then
+            echo "FTP_SERVER_DIR non è impostata come Variable, quindi è stato usato il default './'."
+            echo "Creala in Settings → Environments → production → Environment variables (non tra i Secrets:"
+            echo "il workflow legge vars.FTP_SERVER_DIR), con il nome della cartella del sito e '/' finale."
+          else
+            echo "Imposta la Variable FTP_SERVER_DIR (Settings → Environments → production) sulla cartella che contiene app/, core/ e public/, con '/' finale."
+          fi
           exit 1
 
       # Sincronizza solo i file cambiati dall'ultimo deploy (stato in .ftp-deploy-sync-state.json
