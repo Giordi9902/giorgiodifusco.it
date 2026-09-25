@@ -1,0 +1,8 @@
+# Toolchain e cache di render (rigenerabili) — non versionare.
+_manim/venv/
+_manim/render-cache/
+**/__pycache__/
+*.pyc
+
+# I file .py delle scene e le immagini finali (copertina.png, media/*.png)
+# NON sono ignorati: fanno parte del contenuto dell'articolo.

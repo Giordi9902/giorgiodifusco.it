@@ -193,6 +193,8 @@ jobs:
           security: ${{ vars.FTP_PROTOCOL == 'ftp' && 'loose' || 'strict' }}
           dry-run: ${{ inputs.dry_run || false }}
           log-level: standard
+          # Articoli/ sta nel repo ma è materiale sorgente (testo, copertine, scene
+          # manim): non va pubblicato sul server FTP, quindi è escluso qui sotto.
           exclude: |
             **/.git*
             **/.git*/**
@@ -203,3 +205,4 @@ jobs:
             README.md
             schemas/**
             bin/**
+            Articoli/**
